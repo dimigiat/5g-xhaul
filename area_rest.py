@@ -120,7 +120,7 @@ class Url_Http_Area(ControllerBase):
         except Exception as e:
             return Response(status=500)
         
-    @route('add_tunnel',url4,methods=['POST'])
+    @route('create_tunnel',url4,methods=['POST'])
     def create_tunnel(self,req,**kwargs):
         area_rest=self.area_spp
         req_body=eval(req.body)
