@@ -119,6 +119,20 @@ class Url_Http_Area(ControllerBase):
             return Response(status=200)
         except Exception as e:
             return Response(status=500)
+        
+    @route('add_tunnel',url4,methods=['POST'])
+    def create_tunnel(self,req,**kwargs):
+        area_rest=self.area_spp
+        req_body=eval(req.body)
+        src_etn=req_body["src_etn"]
+        dst_etn=req_body["dst_etn"]
+        latency=req_body["latency"]
+        reserved_bw=req_body["reserved_bw"]
+        try:
+            area_rest.create_tunnel(src_etn,dst_etn,latency,reserved_bw)  #Need to implement create_tunnel as COP client
+            return Response(status=200)
+        except Exception as e:
+            return Response(status=500)
 
     @route('remove_tunnel',url5,methods=['DELETE'])
     def remove_tunnel(self,req,**kwargs):
