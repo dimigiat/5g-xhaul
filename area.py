@@ -62,6 +62,7 @@ class Area(app_manager.RyuApp):
 
     def remove_etn(self,etnid):
         del self.etns[etnid]
+        print self.etns
 
     def get_vifaces_by_etnid(self,etnid):
         print self.etns
