@@ -50,8 +50,10 @@ class Area(app_manager.RyuApp):
         self.vifaces={}
         self.tunnels={}
         self.tnc_ip="84.88.34.33"
-        self.tnc_port="8181"
-        self.tnc_headers={"authorization":"Basic dXNlcjp1c2Vy","cache-control":"no-cache","content-type":"application/json"}
+        #self.tnc_port="8181"
+        self.tnc_port="9696"
+        #self.tnc_headers={"authorization":"Basic dXNlcjp1c2Vy","cache-control":"no-cache","content-type":"application/json"}
+        self.tnc_headers={"accept:"application/json"}
 
     def get_etns(self):
         return self.etns.keys()
@@ -159,6 +161,10 @@ class Area(app_manager.RyuApp):
             print "Something went wrong with tunnel removal from ETN %s" %src_etn
         del self.tunnels[tunid]
 
+    def getCopTopology(self):
+        addr="http://"+str(self.tnc.ip)+":"+str(self.tnc_port)+"/getCopTopology"
+        res=requests.get(url=addr,headers=self.tnc_headers)
+        return res	  
 
 class Etn:
     def __init__(self,etnid,ip="0.0.0.0",port="8080"):
