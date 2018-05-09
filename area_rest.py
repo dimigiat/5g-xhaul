@@ -1,5 +1,5 @@
 # REST interface for Area Controller
-#test
+
 import logging
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 import area
@@ -16,6 +16,7 @@ url5='/tunnels/{tunid}'
 url6='/etns'
 url7='/etns/{etnid}'
 url8='/tunnels2/{tunid}'
+url9='/copTopology'
 
 class Rest_Area(area.Area):
 
@@ -155,5 +156,14 @@ class Url_Http_Area(ControllerBase):
         try:
             res=area_rest.create_tunnel(src_etn,dst_etn,tunid)
             return Response(status=200)
+        except Exception as e:
+            return Response(status=500)
+
+    @route('getCopTopology',url9,methods=['GET'])
+    def getCopTopology(self,req,**kwargs):
+        area_rest=self.area_spp
+        try:
+            res=area_rest.getCopTopology()
+            return Response(content_type='application/json',body=res.json())
         except Exception as e:
             return Response(status=500)
