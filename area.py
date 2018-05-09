@@ -1,22 +1,28 @@
-# This app implements the ETNC component of the Area Controller in a 5G-Xhaul control area
-# It communicates southbound with the individual ETN controllers and northbound with the L1 controller
-# It can also communicate with the TNC component of the Area Controller
+# This app implements the ETN controller in 5G-Xhaul
+# Currently it controls all ETNs in all areas, but a tree structure can be
+# easily implemented with leaf ETN controllers in each area forwarding instructions to their area's ETNs
+
+# It communicates southbound with the individual ETN controllers and with the L1 (TN) controller
+# and northbound with a tenant application
 # All of these interactions take place through RESTful APIs
+# Interaction with the L1 controller follows the COP model convention.
 #
-# The main operation of this app is to parse instructions coming from the L1 controller,
+# The main operation of this app is to parse instructions coming from the tenant application,
 # figure out which ETNs are affected, and send ETN-specific instructions to these ETNs
 # It also requests new tunnels from the TNC and informs the respective source ETNs of the tunnel IDs
+#
+# (Note: an additional operation currently is to retrieve the aggregate topology from the L1 controller,
+# but at the moment this information can only be forwarded towards a requesting tenant application)
 #
 # Expected types of instructions received:
 # - Addition/Removal of ETNs
 # - Creation/Migration/Removal of virtual interfaces
-# - Creation/Removal of Tunnels for inter-ETN transports 
 #
 # Expected types of instructions dispatched to an ETN:
 # - Viface (l2sid:mac) entries the ETN should know about
 # - Tunnel IDs for the source ETNs of tunnels
 #
-# Expected types of instructions dispatched to TNC:
+# Expected types of instructions dispatched to L1 Controller:
 # - Creation/Removal of tunnels
 
 
@@ -56,6 +62,7 @@ class Area(app_manager.RyuApp):
 
     def remove_etn(self,etnid):
         del self.etns[etnid]
+        print self.etns
 
     def get_vifaces_by_etnid(self,etnid):
         print self.etns

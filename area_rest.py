@@ -1,5 +1,5 @@
 # REST interface for Area Controller
-
+#test
 import logging
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 import area
@@ -116,6 +116,20 @@ class Url_Http_Area(ControllerBase):
         tunid=str(tunid)
         try:
             area_rest.add_tunnel(src_etn,dst_etn,tunid)
+            return Response(status=200)
+        except Exception as e:
+            return Response(status=500)
+        
+    @route('create_tunnel',url4,methods=['POST'])
+    def create_tunnel(self,req,**kwargs):
+        area_rest=self.area_spp
+        req_body=eval(req.body)
+        src_etn=req_body["src_etn"]
+        dst_etn=req_body["dst_etn"]
+        latency=req_body["latency"]
+        reserved_bw=req_body["reserved_bw"]
+        try:
+            area_rest.create_tunnel(src_etn,dst_etn,latency,reserved_bw)  #Need to implement create_tunnel as COP client
             return Response(status=200)
         except Exception as e:
             return Response(status=500)
