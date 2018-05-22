@@ -164,6 +164,8 @@ class Url_Http_Area(ControllerBase):
         area_rest=self.area_spp
         try:
             res=area_rest.getCopTopology()
-            return Response(content_type='application/json',body=res.json())
+            body=res.json()
+            body=json.dumps(body)
+            return Response(content_type='application/json', body=body)
         except Exception as e:
             return Response(status=500)
