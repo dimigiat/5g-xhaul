@@ -1,15 +1,16 @@
-# This app implements the ETN controller in 5G-Xhaul
-# Currently it controls all ETNs in all areas, but a tree structure can be
-# easily implemented with leaf ETN controllers in each area forwarding instructions to their area's ETNs
+# This app implements the ETN/IATN controller in 5G-Xhaul
+# Currently it controls all ETNs and all IATNs in all areas, but a tree structure can be
+# easily implemented with leaf controllers in each area forwarding instructions to their area's ETNs/IATNs
 
-# It communicates southbound with the individual ETN controllers and with the L1 (TN) controller
+# It communicates southbound with the individual ETN/IATN controllers and with the L1 (TN) controller
 # and northbound with a tenant application
 # All of these interactions take place through RESTful APIs
 # Interaction with the L1 controller follows the COP model convention.
 #
 # The main operation of this app is to parse instructions coming from the tenant application,
 # figure out which ETNs are affected, and send ETN-specific instructions to these ETNs
-# It also requests new tunnels from the TNC and informs the respective source ETNs of the tunnel IDs
+# It also requests new tunnels from the TNC and informs the respective source ETNs and 
+# intermediate IATNs of the tunnel IDs
 #
 # (Note: an additional operation currently is to retrieve the aggregate topology from the L1 controller,
 # but at the moment this information can only be forwarded towards a requesting tenant application)
@@ -17,6 +18,7 @@
 # Expected types of instructions received:
 # - Addition/Removal of ETNs
 # - Creation/Migration/Removal of virtual interfaces
+# - Creation/Removal of tunnels
 #
 # Expected types of instructions dispatched to an ETN:
 # - Viface (l2sid:mac) entries the ETN should know about
@@ -39,15 +41,21 @@ class Area(app_manager.RyuApp):
         # Dictionary mapping ETN IDs to instances of class ETN
         self.etns={}
         #self.etns[1]=Etn(etnid=1,ip="0.0.0.0",port="8081")
+	    self.etnid_to_name={"00:03:1d:0d:bc:89":"ETN1","00:03:1d:0d:bc:a1":"ETN2","00:03:1d:0d:bc:a9":"ETN3"}
+        self.etn_cop_id_to_mac={}
+
+        self.iatns={}
+        self.iatn_cop_id_to_mac={}
+        # Nested Dictionary with TN-IATNports connections, as L1 Controller is agnostic of IATNports
+        self.iatn_neighbors_to_ports={}
+
         # The nested dictionary below lists all vifaces in the area 
         # {"L2SID1":{
         #     "mac1":{"etnid":XX},   
         #     "mac2":{"etnid":YY}
         #         ...
-
-        self.etnid_to_name={"00:03:1d:0d:bc:89":"ETN1","00:03:1d:0d:bc:a1":"ETN2","00:03:1d:0d:bc:a9":"ETN3"}
-        
         self.vifaces={}
+
         self.tunnels={}
         self.tnc_ip="84.88.34.33"
         #self.tnc_port="8181"
@@ -66,6 +74,17 @@ class Area(app_manager.RyuApp):
         del self.etns[etnid]
         print self.etns
 
+    def get_iatns(self):
+        return self.iatns.keys()
+ 
+    def add_iatn(self,iatnid,ip,port):
+        self.iatns[iatnid]=Iatn(iatnid=iatnid,ip=ip,port=port)
+        print self.iatns
+
+    def remove_iatn(self,iatnid):
+        del self.iatns[iatnid]
+        print self.iatns
+
     def get_vifaces_by_etnid(self,etnid):
         print self.etns
         return self.etns[etnid].get_local_vifaces()
@@ -77,16 +96,16 @@ class Area(app_manager.RyuApp):
             if mac in self.vifaces[l2sid]:
                 if self.vifaces[l2sid][mac]["etnid"]!=etnid:
                     old_etnid=self.vifaces[l2sid][mac]["etnid"]
-                    print "Viface migrating away from %s" % old_etnid
+                    print "Viface [%s , %s] migrating away from %s" % (l2sid,mac,old_etnid)
                     # The command below does not have direct effect on the flow tables
                     self.etns[old_etnid].remove_local_viface(l2sid,mac)
                     print "Removed local viface from old etn"
                     # If old_etn no longer has l2sid, we have to remove relevant entries (including old own entry)
                     # If it still does, it will be informed for the update of the viface in the last loop of this method
                     if not self.etns[old_etnid].l2sid_exists(l2sid):
-                        print "Found out that the old etn does not have l2sid any more"
+                        print "Found out that the old etn (%s) does not have L2SID %s any more" % (old_etnid,l2sid)
                         for mac_iter in self.vifaces[l2sid]:
-                            print "Removing L2SID %s and mac %s from old etn" % (l2sid,mac_iter)
+                            print "Removing L2SID %s and mac %s from old etn (%s)" % (l2sid,mac_iter,old_etnid)
                             self.etns[old_etnid].remove_viface(l2sid,mac_iter)
                     del self.vifaces[l2sid][mac]
                     # No need to check for removing l2sid subdictionary here, as we know
@@ -98,7 +117,7 @@ class Area(app_manager.RyuApp):
             print "Currently the area vifaces record for L2SID %s is as follows" % l2sid
             print self.vifaces[l2sid]
             for existing_mac in self.vifaces[l2sid]:
-                print "MAC to be installed %s" % existing_mac
+                print "MAC to be installed: %s" % existing_mac
                 res=self.etns[etnid].update_viface(l2sid,existing_mac,self.vifaces[l2sid][existing_mac]["etnid"])
                 if res.status_code!=200:
                     print "L2SID %s, MAC %s at %s not installed in %s"%(l2sid,mac,self.vifaces[l2sid][mac]["etnid"],etnid)
@@ -123,30 +142,37 @@ class Area(app_manager.RyuApp):
         del self.vifaces[l2sid][mac] 
 
 
-    def create_tunnel(self,source,target,tunid):
-        print "Im in ACs create tunnel and about to call TNCs API"
-        addr="http://"+str(self.tnc_ip)+":"+str(self.tnc_port)+"/restconf/operations/fivegxhaul:createTunnel"
+    def create_tunnel(self,source,target,qos_class,direction):
+        print "Im in ACs create_tunnel and about to call L1 COP API"
+        addr="http://"+str(self.tnc_ip)+":"+str(self.tnc_port)+"/createTunnel"
         src=self.etnid_to_name[source]
         dst=self.etnid_to_name[target]
-        tunid=int(tunid)
-        msg={"input":{"tunnelId":tunid,"sourceNode":src,"destinationNode":dst}}
+	    msg={"call":{"a-end":src,"z-end":dst,"traffic-params":{"qos-class":qos_class},"transport-layer":{"direction":direction,"layer":"VLAN_5GXHAUL"}}}
         json_msg=json.dumps(msg)
-        print "Addr is %s and msg is %s" % (addr,json_msg)
+        print "Addr is %s and msg is %s" % (addr,msg)
         res=requests.post(url=addr,data=json_msg,headers=self.tnc_headers)
-        print res
         if res.status_code==200:
-            print "Successful tunnel creation by TNC"
-            self.add_tunnel(source,target,tunid)
-        return res
+            print "Successful tunnel creation by L1"
+            content=json.loads(res.json)
+            tunid=content["call"]["connections"][0]["path"]["label"]["label-value"]
+            tunid=int(tunid)
+            self.etns[source].add_tunnel(target,tunid)
+            print "Tunnel %s successfully installed at source ETN %s" % (tunid,source)
+            connections=content["call"]["connections"]
+            num_connections=len(connections)
+            if num_connections>1:
+                num_iatn=num_connections-1
+                for iter in range(1,num_connections):
+                    iatn_cop_id=connections[iter]["path"]["a-end"]
+                    iatn_id=self.iatn_cop_id_to_mac[iatn_cop_id] #Hardcoded
+                    incoming_vlan=connections[iter-1]["path"]["label"]["label-value"]
+                    outgoing_vlan=connections[iter]["path"]["label"]["label-value"]
+                    incoming_tn=connections[iter-1]["path"]["topo-components"][-1]["endpoint-id"]
+                    outgoing_tn=connections[iter]["path"]["topo-components"][0]["endpoint-id"]
+                    in_port=self.iatn_neighbors_to_ports[iatn_id][incoming_tn]
+                    out_port=self.iatn_neighbors_to_ports[iatn_id][outgoing_tn]
+                    self.iatns[iatn_id].add_tunnel(incoming_vlan,outgoing_vlan,in_port,out_port)
 
-
-    def add_tunnel(self,src_etn,dst_etn,tunid):
-        tunid=int(tunid)
-        self.tunnels[tunid]={"src_etn":src_etn,"dst_etn":dst_etn}
-        etn=self.etns[src_etn]
-        res=etn.add_tunnel(dst_etn,tunid)
-        if res.status_code!=200:
-            print "Something went wrong with tunnel installation at the ETNs"
 
     def remove_tunnel(self,tunid):
         print "Im in ACs remove tunnel"
@@ -158,15 +184,13 @@ class Area(app_manager.RyuApp):
         print "Ready to remove tunnel from its src etn"
         res=etn.remove_tunnel(tunid)
         if res.status_code!=204:
-            print "Something went wrong with tunnel removal from ETN %s" %src_etn
+            print "Something went wrong with tunnel removal from ETN %s" % src_etn
         del self.tunnels[tunid]
 
     def getCopTopology(self):
         print "i'm in Area module's getCopTopology"
         addr="http://"+str(self.tnc_ip)+":"+str(self.tnc_port)+"/getCopTopology"
-        print addr
         res=requests.get(url=addr,headers=self.tnc_headers)
-        print type(res)
         return res	  
 
 class Etn:
@@ -175,7 +199,6 @@ class Etn:
         self.etnid=etnid
         self.ip=ip
         self.port=port
-        
         self.local_vifaces={}
 
     def get_local_vifaces(self):
@@ -200,7 +223,7 @@ class Etn:
         return res
  
     def remove_viface(self,l2sid,mac):
-        print "Im in area controller's etn.remove_viface"
+        print "Im in area controller's Etn.remove_viface"
         if l2sid in self.local_vifaces: 
             if mac in self.local_vifaces[l2sid]:
                 self.remove_local_viface(l2sid,mac)
@@ -213,7 +236,7 @@ class Etn:
         return l2sid in self.local_vifaces
                          
     def add_tunnel(self,dst_etn,tunid):
-        print "Im in etn.add_tunnel of ETN %s" % self.etnid
+        print "Im in AC's Etn.add_tunnel of ETN %s" % self.etnid
         addr="http://"+str(self.ip)+":"+str(self.port)+"/tunnels/"+str(tunid)
         msg={"etnid":dst_etn}
         print msg
@@ -227,3 +250,20 @@ class Etn:
         res=requests.delete(addr)
         return res   
         
+class Iatn:
+    def __init__(self,iatnid,ip="0.0.0.0",port="8080"):
+        self.iatnid=iatnid
+        self.ip=ip
+        self.port=port
+
+    def add_tunnel(self,incoming_vlan,outgoing_vlan,in_port,out_port)
+        addr="http://"+str(self.ip)+":"+str(self.port)+"/tunnels/"+str(incoming_vlan)
+        msg={"in_port":in_port,"outgoing_vlan":outgoing_vlan,"out_port":out_port}
+        json_msg=json.dumps(msg)
+        res=requests.put(addr,json_msg)
+        return res
+
+    def remove_tunnel(self,incoming_vlan)
+        addr="http://"+str(self.ip)+":"+str(self.port)+"/tunnels/"+str(incoming_vlan)
+        res=requests.delete(addr)
+        return res

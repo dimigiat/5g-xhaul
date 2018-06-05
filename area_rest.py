@@ -129,9 +129,12 @@ class Url_Http_Area(ControllerBase):
         dst_etn=req_body["dst_etn"]
         latency=req_body["latency"]
         reserved_bw=req_body["reserved_bw"]
+        direction=req_body["direction"]
         try:
-            area_rest.create_tunnel(src_etn,dst_etn,latency,reserved_bw)  #Need to implement create_tunnel as COP client
-            return Response(status=200)
+            res=area_rest.create_tunnel(src_etn,dst_etn,latency,reserved_bw,direction) 
+	    body=res.json()
+            body=json.dumps(body)
+            return Response(status=200,content_type="application/json",body=body)
         except Exception as e:
             return Response(status=500)
 

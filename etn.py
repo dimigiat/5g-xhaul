@@ -393,7 +393,6 @@ class ETN13(app_manager.RyuApp):
             # In all cases, the new viface belongs to another etn, so we update the relevant table
             self.l2sid_and_mac_to_etn_update(l2seg=l2sid,mac=mac,etn=etnid) 
         else:
-            # Some OpenStack process might communicate with the LA for port assignment to VNFs
             port=self.local_viface_to_port[l2sid][mac] # hardcoded workaround
             # We're checking if it migrated here from another ETN
             if (l2sid,mac) in self.l2seg_mac_to_etn:

@@ -78,7 +78,7 @@ class Url_Http_Etn(ControllerBase):
 	etnid=req_body["etnid"]
         try:         
             etn_rest.update_viface(l2sid,viface_mac,etnid)
-	    return_msg="Entry of Viface with l2sid %s and mac %s, located in ETN %s, successfully installed.\n" % (l2sid,viface_mac,etnid) # Stub 
+	        return_msg="Entry of Viface with l2sid %s and mac %s, located in ETN %s, successfully installed.\n" % (l2sid,viface_mac,etnid) 
             return Response(status=200, body=json.dumps(return_msg))
         except Exception as e:
             return Response(status=500)
